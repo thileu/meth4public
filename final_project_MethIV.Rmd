@@ -1,0 +1,170 @@
+---
+title: 'Meth IV: final project'
+author: '19702141'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Loading packages
+```{r,warning=FALSE,message=FALSE,include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(rsample)
+library(gtools)
+library(glmnet)
+library(broom)
+library(boot)
+library(ranger)
+```
+
+
+
+Data preprocessing
+```{r}
+set.seed(2)
+
+#load dataset
+df <- read.csv("../data/ESS10.csv")
+
+#exclude unnecessary & problematic variables (see report)
+excl <- c("name","essround","edition","proddate","idno","dweight","pspwght","pweight","anweight","prtvclt1","prtvclt2","prtvclt3", "prtvtame", "prtvtbhr", "prtvtbno", "prtvtdgr", "prtvtdis", "prtvtdit", "prtvtebg", "prtvtecz", "prtvtefi", "prtvtfsi", "prtvtghu", "prtvthch", "prtvthee", "prtvthnl", "prtvtmk","prtclebg", "prtclhch", "prtclbhr", "prtclecz", "prtclhee", "prtclffi", "prtclffr", "prtcldgr", "prtclhhu", "prtcldis", "prtcleit", "prtclclt", "prtclame", "prtclgnl", "prtclmk", "prtclbno", "prtclfpt","prtvtefr","prtvtdpt","prtvtesk", "prtclfsi", "prtclesk","rlgdnach", "rlgdnafi", "rlgdnagr", "rlgdnhu", "rlgdnais", "rlgdnlt", "rlgdme", "rlgdnanl","fbrncntc","mbrncntc","lnghom1","lnghom2","gndr2","gndr3","gndr4","gndr5","gndr6","gndr7","gndr8","gndr9","gndr10","gndr11","gndr12","gndr13", "yrbrn", "yrbrn2", "yrbrn3", "yrbrn4", "yrbrn5", "yrbrn6", "yrbrn7", "yrbrn8", "yrbrn9", "yrbrn10", "yrbrn11", "yrbrn12", "yrbrn13", "rshipa2", "rshipa3", "rshipa4", "rshipa5", "rshipa6", "rshipa7", "rshipa8", "rshipa9", "rshipa10", "rshipa11", "rshipa12", "rshipa13","anctry1","anctry2","edlvdahu", "edlvdch", "edlvdcz", "edlvdee", "edlvdfi", "edlvdfr", "edlvdis", "edlvdlt", "edlvdme", "edlvdmk", "edlvdpt", "edlvdsk", "edlvfdahu", "edlvfebg", "edlvfehr", "edlvfdcz", "edlvfdee", "edlvfdfi", "edlvfdfr", "edlvfegr", "edlvfdis", "edlvfeit", "edlvfdlt" ,"edlvfdme", "edlvfenl", "edlvfdmk", "edlvfeno", "edlvfdpt", "edlvfesi", "edlvfdsk", "edlvpebg", "edlvpdch", "edlvpehr", "edlvpdcz", "edlvpdee", "edlvpdfi", "edlvpdfr", "edlvpegr", "edlvdahu", "edlvpdis", "edlvpeit", "edlvpdlt", "edlvpdme", "edlvpenl", "edlvpdmk", "edlvpeno", "edlvpdpt", "edlvpesi","edulvlb", "edulvlpb", "edlvpdsk","pdwrkp","edctnp","uemplap","uemplip","dsbldp","rtrdp","cmsrvp","hswrkp","dngothp","dngnapp","dngnap","mnactp","crpdwkp","isco08p","emprelp","wkhtotp","emprf14","occf14b","emprm14","occm14b","eduyrs","region","domain","prob","stratum","psu","vdcond","vdovexre","vdtype","vdtpsvre","vdtpitre","vdtpscre","vdtpaure","vdtpvire","vdtpoire","vdtpntre","vdtpapre","vdtprere","vdtpdkre","vdtpnare","inwds","ainws","ainwe","binwe","cinwe","dinwe","finwe","ginwe","hinwe","iinwe","kinwe","vinwe","inwde","jinws","jinwe","inwtm","mode","edulvlmb","edulvlfb","edlvmebg","edlvmdch","edlvmehr","edlvmdcz","edlvmdee","edlvmdfi","edlvmdfr","edlvmegr","edlvmdahu","edlvmdis","edlvmeit","edlvmdlt","edlvmdme","edlvmenl","edlvmdmk","edlvmeno","edlvmdpt","edlvmesi","edlvmdsk","edlvfebg","edlvfdch","edlvfehr","edlvfdcz","edlvfdee","edlvfdfi","edlvfdfr","edlvfegr","edlvfdahu","edlvfdis","edlvfeit","edlvfdlt","edlvfdme","edlvfenl","edlvfdmk","edlvfeno","edlvfdpt","edlvfesi","edlvfdsk","rlgdnmk", "rlgdnno", "rlgdnbsk","rlgdeach","rlgdeafi","rlgdeagr","rlgdehu","rlgdeais","rlgdelt","rlgdeme","rlgdeanl","rlgdemk","rlgdeno","rlgdebsk","cntbrthd","vteubcmb","rshpsmk","marstmk","edlvehr","edlvebg","edlveit","edlvenl","edlveno","edlvesi","edlvpdahu","edlvegr")
+`%!in%` <- negate(`%in%`)
+data <- df%>% select(-one_of(excl))
+
+#one-hot coding of cntry variable
+country <- model.matrix(~cntry-1,data = data,na.action="na.pass")
+ESS <- cbind(data,country)
+
+#create new variable for trust in political institutions and actors (see report)
+cor(cbind(ESS$trstlgl,ESS$trstprl,ESS$trstplc),use = "complete.obs")
+cor(cbind(ESS$trstplt,ESS$trstprt),use = "complete.obs")
+ESS$trstact <- (ESS$trstplt+ESS$trstprt)/2
+ESS$trstinst <- (ESS$trstlgl+ESS$trstprl+ESS$trstplc)/3
+ESS$trstact <- ifelse(ESS$trstact>10,NA,ESS$trstact)
+ESS$trstinst <- ifelse(ESS$trstinst>10,NA,ESS$trstinst)
+#remove variables no longer needed
+ESS <- ESS %>% select(-one_of(c("trstplt","trstprt","cntry","trstlgl","trstplc","trstprl")))
+
+#split data into test & training set
+split <- initial_split(ESS,prop = 0.8)
+train <- training(split)
+test <- testing(split)
+
+#impute missing values
+train_imp <- makeX(train, na.impute = T, sparse = F)
+test_imp <- as.data.frame(makeX(test,na.impute = T,sparse = F))
+trstinst_imp <- train_imp[,"trstinst"]
+trstact_imp <- train_imp[,"trstact"]
+features_imp <- train_imp[,colnames(train_imp) %!in% c("trstprl","trstact","trstinst")]
+
+```
+
+Variable selection
+```{r}
+set.seed(3)
+
+#Lasso variable selection
+linreg_instimp <- glmnet(features_imp,trstinst_imp,family = "gaussian",alpha = 1)
+plot(linreg_instimp,xvar="lambda",label=T)
+cv_inst_imp <- cv.glmnet(features_imp,trstinst_imp,type.measure = "mse",nfolds = 5)
+plot(cv_inst_imp)
+names1.1 <- rownames(coef(cv_inst_imp, s = "lambda.min"))[coef(cv_inst_imp, s = "lambda.min")[,1]!=0] #select best performing model (institutions)
+dat1.1 <- as.data.frame(as.matrix(train_imp[, colnames(train_imp) %in% names1.1]))
+
+linreg_actimp <- glmnet(features_imp,trstact_imp,family = "gaussian",alpha = 1)
+plot(linreg_actimp,xvar="lambda",label=T)
+cv_act_imp <- cv.glmnet(features_imp,trstact_imp,type.measure = "mse",nfolds = 5)
+plot(cv_act_imp)
+names1.2 <- rownames(coef(cv_act_imp, s = "lambda.min"))[coef(cv_act_imp, s = "lambda.min")[,1]!=0] #select best performing model (actors)
+dat1.2 <- as.data.frame(as.matrix(train_imp[, colnames(train_imp) %in% names1.2]))
+```
+
+Simple linear regression
+```{r}
+
+#fit simple linear regression with predictors of best performing models
+fit1.1 <- lm(trstinst_imp ~ ., data = dat1.1)
+summary(fit1.1)
+fit1.2 <- lm(trstact_imp ~ ., data = dat1.2)
+summary(fit1.2)
+
+#make predictions for test data (simple regression)
+pred_inst <- predict(fit1.1, newdata = test_imp)
+pred_act <- predict(fit1.2, newdata = test_imp)
+mse_inst <- mean((test_imp$trstinst-pred_inst)^2,na.rm=T)
+mse_act <- mean((test_imp$trstact-pred_act)^2,na.rm=T)
+mse_inst
+mse_act
+p1.1 <- ggplot(,aes(x=fit1.1$fitted.values,y=fit1.1$residuals))+geom_point()+geom_hline(yintercept = 0)+ylab("Residuals")+xlab("Fitted Values") +labs(title = "Residual Plot for Trust in Institutions",subtitle = "Model = Simple Linear Regression")
+p1.1
+p1.2 <-ggplot(,aes(x=fit1.2$fitted.values,y=fit1.2$residuals))+geom_point()+geom_hline(yintercept = 0)+ylab("Residuals")+xlab("Fitted Values") +
+  labs(title = "Residual Plot for Trust in Actors",subtitle = "Model = Simple Linear Regression")
+p1.2
+
+ptest1 <- ggplot(,aes(y = trstinst_imp,x=fit1.1$fitted.values))+geom_point()
+ptest2 <- ggplot(,aes(y = trstact_imp,x=fit1.2$fitted.values))+geom_point()
+ptest1
+ptest2
+
+```
+
+complex linear regression
+```{r}
+set.seed(3)
+n1 <- names1.1[2:length(names1.1)]
+n2 <- names1.2[2:length(names1.2)]
+f1 <- as.formula(paste0("trstinst~",paste(n1,collapse ="+"),collapse = ""))
+f2 <- as.formula(paste0("trstact~",paste(n2,collapse ="+"),collapse = ""))
+rfdat1 <- as.data.frame(train_imp[,colnames(train) %in% c("trstinst",names1.1)])
+rfdat2 <- as.data.frame(train_imp[,colnames(train) %in% c("trstact",names1.2)])
+folds1 <- vfold_cv(rfdat1,v=5)
+folds2 <- vfold_cv(rfdat2,v=5)
+
+rfmod <- rand_forest(trees = tune(),min_n = tune())%>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+rfwf <- workflow() %>%
+add_model(rfmod) %>%
+add_formula(f1) 
+rftn <- rfwf %>%
+tune_grid(resamples=folds1, 
+grid=expand_grid(min_n=c(400,700),
+trees=c(500,1000)))
+rftn %>%
+show_best("rmse",n=10)
+rfbest <- rftn %>%
+select_best("rmse")
+rffinal1 <-
+rfwf %>%
+finalize_workflow(rfbest) %>%
+fit(data=rfdat1)
+
+rfmod <- rand_forest(trees = tune(),min_n = tune())%>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+rfwf2 <- workflow() %>%
+add_model(rfmod) %>%
+add_formula(f2) 
+rftn2 <- rfwf2 %>%
+tune_grid(resamples=folds2, 
+grid=expand_grid(min_n=c(400,700),
+trees=c(500,1000)))
+rftn2 %>%
+show_best("rmse",n=10)
+rfbest2 <- rftn2 %>%
+select_best("rmse")
+rffinal2 <-
+rfwf2 %>%
+finalize_workflow(rfbest2) %>%
+fit(data=rfdat2)
+
+pred_inst2 <- predict(rffinal1,test_imp,type = "numeric")
+pred_act2 <- predict(rffinal2,test_imp,type = "numeric")
+mse_inst2 <- mean((test_imp$trstinst-pred_inst2$.pred)^2,na.rm=T)
+mse_act2 <- mean((test_imp$trstact-pred_act2$.pred)^2,na.rm=T)
+mse_inst2
+mse_act2
+```
+
+
+
